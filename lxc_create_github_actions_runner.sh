@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # This script automates the creation and registration of a Github self-hosted runner within a Proxmox LXC (Linux Container).
-# The runner is based on Ubuntu 23.04. Before running the script, ensure you have your GITHUB_TOKEN 
+# The runner is based on Ubuntu 23.04. Before running the script, ensure you have your GITHUB_TOKEN 
 # and the OWNERREPO (github owner/repository) available.
 
 set -e
@@ -17,6 +17,7 @@ PCT_SWAP="4096"
 PCT_STORAGE="local-lvm"
 DEFAULT_IP_ADDR="192.168.0.132/24"
 DEFAULT_GATEWAY="192.168.0.1"
+DEFAULT_DNS_SERVER="1.1.1.1" # <--- ADDED: Default DNS Server
 
 # Ask for GitHub token and owner/repo if they're not set
 if [ -z "$GITHUB_TOKEN" ]; then
@@ -39,6 +40,8 @@ read -r -e -p "Container Address IP (CIDR format) [$DEFAULT_IP_ADDR]: " input_ip
 IP_ADDR=${input_ip_addr:-$DEFAULT_IP_ADDR}
 read -r -e -p "Container Gateway IP [$DEFAULT_GATEWAY]: " input_gateway
 GATEWAY=${input_gateway:-$DEFAULT_GATEWAY}
+read -r -e -p "Container DNS Server [$DEFAULT_DNS_SERVER]: " input_dns # <--- ADDED: Prompt for DNS
+DNS_SERVER=${input_dns:-$DEFAULT_DNS_SERVER} # <--- ADDED: Assign DNS variable
 
 # Get filename from the URLs
 TEMPL_FILE=$(basename $TEMPL_URL)
@@ -54,15 +57,16 @@ curl -q -C - -o "$TEMPL_FILE" $TEMPL_URL
 # Create LXC container
 log "-- Creating LXC container with ID:$PCTID"
 pct create "$PCTID" "$TEMPL_FILE" \
-   -arch $PCT_ARCH \
-   -ostype ubuntu \
-   -hostname github-runner-proxmox-$(openssl rand -hex 3) \
-   -cores $PCT_CORES \
-   -memory $PCT_MEMORY \
-   -swap $PCT_SWAP \
-   -storage $PCT_STORAGE \
-   -features nesting=1,keyctl=1 \
-   -net0 name=eth0,bridge=vmbr0,gw="$GATEWAY",ip="$IP_ADDR",type=veth
+    -arch $PCT_ARCH \
+    -ostype ubuntu \
+    -hostname github-runner-proxmox-$(openssl rand -hex 3) \
+    -cores $PCT_CORES \
+    -memory $PCT_MEMORY \
+    -swap $PCT_SWAP \
+    -storage $PCT_STORAGE \
+    -features nesting=1,keyctl=1 \
+    -net0 name=eth0,bridge=vmbr0,gw="$GATEWAY",ip="$IP_ADDR",type=veth \
+    -nameserver "$DNS_SERVER" # <--- ADDED: Set the DNS server for the container
 
 # Resize the container
 log "-- Resizing container to $PCTSIZE"
