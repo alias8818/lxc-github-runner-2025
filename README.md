@@ -39,12 +39,26 @@ root@proxmox-1:~# ./cssh cat /etc/debian_version
 
 Creates and sets up a self-hosted GitHub Actions runner in an LXC container on Proxmox:
 
-1. Create a new LXC container based on ubuntu 23.04
-1. Installs apt-get dependencies (git, curl)
-1. Installs docker
-1. Installs Github actions (needs GITHUB_TOKEN and OWNERREPO) and sets up service
+1. Creates a new LXC container based on Ubuntu 24.04 LTS
+1. Configures networking (DHCP by default, static IP optional)
+1. Installs apt-get dependencies (git, curl, zip, jq)
+1. Installs Docker
+1. Downloads and verifies GitHub Actions runner (with SHA256 checksum)
+1. Configures runner to run as dedicated 'runner' user (not root)
+1. Registers and starts the runner as a system service
 
-NOTE: Since the new container has docker support, it cannot be run unpriviledged. This approach is more insecure than using a full-blown VM, at the benefit of being much faster most times. That being said, make sure you only use this self-hosted runner in contexts that you can control at all times (e.g. careful using with public repositories).
+### Features
+
+- **DHCP by default**: Containers get IP addresses automatically (configurable via `USE_DHCP` variable)
+- **Security improvements**: Runner runs as dedicated user, not root
+- **Checksum verification**: Downloads are verified with SHA256 checksums
+- **Better error handling**: Comprehensive error checking and automatic cleanup on failure
+- **Template caching**: Avoids re-downloading Ubuntu template if already present
+- **Latest versions**: Uses GitHub Actions runner v2.329.0 and Ubuntu 24.04 LTS
+
+### Security Warning
+
+Since the new container has Docker support, it cannot be run unprivileged. This approach is more insecure than using a full-blown VM, at the benefit of being much faster most times. That being said, make sure you only use this self-hosted runner in contexts that you can control at all times (e.g., **avoid using with public repositories or untrusted code**).
 
 ### Instructions
 
