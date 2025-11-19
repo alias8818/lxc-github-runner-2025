@@ -1,154 +1,234 @@
-# proxmox_scripts
+# LXC GitHub Actions Runner for Proxmox
 
-Set of Proxmox scripts that can be useful for anyone.
+Automated script to create and configure self-hosted GitHub Actions runners in LXC containers on Proxmox VE.
 
-Tested on Proxmox VE 8.
+Tested on **Proxmox VE 8** with **Ubuntu 24.04 LTS** containers.
 
-## Run a command in all nodes
+## Features
 
-Needs `jq`. Install with `apt update && apt install -y jq`
+- **Automated setup**: Creates LXC container, installs dependencies, and registers runner with GitHub
+- **DHCP networking**: Automatic IP assignment with Proxmox DHCP fixes applied
+- **Interactive & CLI modes**: Use interactive menus or pass arguments for automation
+- **Organization & repository runners**: Support for both repo-level and org-level runners
+- **.NET 9.0 ready**: Pre-installed with .NET 9.0 SDK, PowerShell, and build tools
+- **Security focused**: Runner runs as dedicated user (not root)
+- **Robust error handling**: Automatic cleanup on failures, network retry logic
+- **Template caching**: Reuses downloaded Ubuntu templates for faster deployment
 
-Write the following script into a file name `cssh`:
-```bash
-#!/bin/bash
-if [ ! -n "$1" ]; then echo "Usage: $0 [command]"; else
-  for n in $(cat /etc/pve/.members  | jq -r '.nodelist[].ip'); do
-    echo --- $n -----------------------------------------------------
-    ssh -T $n "$@"
-  done
-fi
-```
+## What Gets Installed
 
-Example output:
-```bash
-root@proxmox-1:~# chmod ./cssh
-root@proxmox-1:~# ./cssh cat /etc/debian_version
---- 192.168.1.10 -----------------------------------------------------
-12.2
---- 192.168.1.10 -----------------------------------------------------
-12.2
---- 192.168.1.11 -----------------------------------------------------
-12.2
---- 192.168.1.12 -----------------------------------------------------
-12.2
---- 192.168.1.13 -----------------------------------------------------
-12.2
-```
+The script creates an LXC container with:
 
-## [lxc_create_github_actions_runner.sh](./lxc_create_github_actions_runner.sh)
+1. **Ubuntu 24.04 LTS** base system
+2. **GitHub Actions Runner** v2.329.0 (with SHA256 verification)
+3. **Development tools**:
+   - Git, curl, zip, jq
+   - .NET 9.0 SDK (via Ubuntu backports PPA)
+   - PowerShell
+   - build-essential, bc
+4. **Network configuration**: DHCP with firewall disabled (prevents common DHCP issues)
+5. **System service**: Runner configured to start automatically on boot
 
-Creates and sets up a self-hosted GitHub Actions runner in an LXC container on Proxmox:
+## Quick Start
 
-1. Creates a new LXC container based on Ubuntu 24.04 LTS
-1. Configures networking (DHCP by default, static IP optional)
-1. Installs apt-get dependencies (git, curl, zip, jq)
-1. Installs Docker
-1. Installs .NET 9.0 SDK for building .NET applications
-1. Installs PowerShell for running PowerShell scripts in CI
-1. Installs build tools (build-essential, bc)
-1. Configures sudo permissions for cache dropping (useful for benchmarks)
-1. Downloads and verifies GitHub Actions runner (with SHA256 checksum)
-1. Configures runner to run as dedicated 'runner' user (not root)
-1. Registers and starts the runner as a system service
-
-### Features
-
-- **DHCP by default**: Containers get IP addresses automatically (configurable via `USE_DHCP` variable)
-- **Interactive configuration**: Prompts for storage backend and network bridge with available options displayed
-- **Network connectivity check**: Waits for DNS and internet before installing packages (up to 60 seconds)
-- **Retry logic**: Automatically retries package installation on network failures (3 attempts)
-- **Automatic cleanup**: Failed containers are automatically destroyed on script errors
-- **Security improvements**: Runner runs as dedicated user, not root
-- **Checksum verification**: Downloads are verified with SHA256 checksums
-- **Template caching**: Avoids re-downloading Ubuntu template if already present
-- **Latest versions**: Uses GitHub Actions runner v2.329.0 and Ubuntu 24.04 LTS
-- **.NET 9.0 ready**: Pre-installed with .NET 9.0 SDK, PowerShell, and build tools for .NET development
-
-### Security Warning
-
-Since the new container has Docker support, it cannot be run unprivileged. This approach is more insecure than using a full-blown VM, at the benefit of being much faster most times. That being said, make sure you only use this self-hosted runner in contexts that you can control at all times (e.g., **avoid using with public repositories or untrusted code**).
-
-### Instructions
-
-#### Interactive Mode
+### Interactive Mode
 
 ```bash
 # Download the script
 curl -O https://raw.githubusercontent.com/alias8818/lxc-github-runner-2025/main/lxc_create_github_actions_runner.sh
 
-# Run the script interactively
-bash lxc_create_github_actions_runner.sh
+# Make it executable
+chmod +x lxc_create_github_actions_runner.sh
+
+# Run interactively
+./lxc_create_github_actions_runner.sh
 ```
 
-The script will prompt you for:
-- GitHub Token
-- GitHub username/organization
-- GitHub repository name
-- Storage backend (interactive dropdown menu)
-- Network bridge (interactive dropdown menu)
-- DNS Server (default: `1.1.1.1`)
+You'll be prompted for:
+- GitHub token
+- Username/organization
+- Repository name (or organization scope)
+- Storage backend (dropdown menu)
+- Network bridge (dropdown menu)
+- DNS server (default: 1.1.1.1)
 
-#### Automated Mode
+### Automated Mode
 
-For automation, CI/CD, or multiple runners:
+For automation, CI/CD, or deploying multiple runners:
 
 ```bash
 # Repository-level runner (single repo)
-bash lxc_create_github_actions_runner.sh \
+./lxc_create_github_actions_runner.sh \
   --user alias8818 \
   --repo BarrierClone \
   --token ghp_xxxxxxxxxxxxx
 
-# Organization-level runner (available to ALL repos in org)
-bash lxc_create_github_actions_runner.sh \
+# Organization-level runner (available to ALL repos)
+./lxc_create_github_actions_runner.sh \
   --org alias8818 \
   --token ghp_xxxxxxxxxxxxx
 
-# With infrastructure options
-bash lxc_create_github_actions_runner.sh \
-  --org alias8818 \
+# With custom infrastructure settings
+./lxc_create_github_actions_runner.sh \
+  --user alias8818 \
+  --repo BarrierClone \
   --token ghp_xxxxxxxxxxxxx \
   --storage pve_storage \
   --bridge vmbr0 \
   --dns 1.1.1.1
-
-# Partially automated (will prompt for missing values)
-bash lxc_create_github_actions_runner.sh \
-  --user alias8818 \
-  --repo BarrierClone
-
-# Show help
-bash lxc_create_github_actions_runner.sh --help
 ```
 
-#### Runner Scope
+## Command-Line Options
 
-**Repository-level runners**:
-- Dedicated to a single repository
-- Use: `--user <username> --repo <repository>`
+| Option | Description |
+|--------|-------------|
+| `--user <username>` | GitHub username (for repo-level runners) |
+| `--repo <repository>` | Repository name (for repo-level runners) |
+| `--org <organization>` | Organization name (for org-level runners) |
+| `--token <token>` | GitHub Personal Access Token (required) |
+| `--storage <storage>` | Proxmox storage backend (optional) |
+| `--bridge <bridge>` | Network bridge (optional) |
+| `--dns <dns>` | DNS server (default: 1.1.1.1) |
+| `-h, --help` | Show help message |
 
-**Organization-level runners**:
-- Available to ALL repositories in your organization
-- Use: `--org <organization>`
-- Requires: Token with `admin:org` permissions
+## Runner Scope
 
-#### Command-Line Options
+### Repository-Level Runners
 
-- `--user <username>` - GitHub username (for repo-level runners)
-- `--repo <repository>` - GitHub repository name (for repo-level runners)
-- `--org <organization>` - GitHub organization (for org-level runners)
-- `--token <token>` - GitHub Personal Access Token
-- `--storage <storage>` - Proxmox storage backend
-- `--bridge <bridge>` - Network bridge
-- `--dns <dns>` - DNS server
-- `-h, --help` - Show help message
+Dedicated to a **single repository**:
 
-#### Network Configuration
+```bash
+./lxc_create_github_actions_runner.sh \
+  --user <username> \
+  --repo <repository> \
+  --token <token>
+```
 
-The script uses **DHCP by default** with these fixes for common Proxmox DHCP issues:
+**Token permissions required**: `repo` (full control of private repositories)
+
+### Organization-Level Runners
+
+Available to **all repositories** in your organization:
+
+```bash
+./lxc_create_github_actions_runner.sh \
+  --org <organization> \
+  --token <token>
+```
+
+**Token permissions required**: `admin:org` (full control of organizations)
+
+## Networking
+
+### DHCP (Default)
+
+The script uses DHCP by default with these fixes for common Proxmox issues:
+
 - **Firewall disabled** on network interface (prevents DHCP blocking)
-- **Container restart** after creation (ensures DHCP client gets IP)
+- **Container restart** after creation (ensures DHCP lease acquisition)
+- **Network connectivity check** before package installation (waits up to 60 seconds)
 
-To use static IP instead, edit the script and set `USE_DHCP="no"` before running.
+### Static IP (Optional)
 
-**Warning**: Make sure you read and understand the code you are running before executing it on your machine.
+To use static IP addressing instead, edit the script and set:
+
+```bash
+USE_DHCP="no"
+```
+
+Then run the script. You'll be prompted for IP address, gateway, and netmask.
+
+## GitHub Token
+
+### Creating a Personal Access Token
+
+1. Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. Click "Generate new token (classic)"
+3. Select scopes:
+   - For **repository runners**: `repo` (Full control of private repositories)
+   - For **organization runners**: `admin:org` (Full control of orgs and teams)
+4. Copy the token (starts with `ghp_`)
+
+### Using the Token
+
+```bash
+./lxc_create_github_actions_runner.sh \
+  --user alias8818 \
+  --repo BarrierClone \
+  --token ghp_xxxxxxxxxxxxx
+```
+
+**Note**: Tokens are sensitive. Never commit them to version control.
+
+## Using Your Runner
+
+Once created, use your self-hosted runner in workflows:
+
+```yaml
+name: Build
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: self-hosted  # Uses your LXC runner
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with .NET
+        run: |
+          dotnet --version
+          dotnet build
+          dotnet test
+```
+
+## Troubleshooting
+
+### Network Issues
+
+If containers can't reach the internet:
+
+1. Verify DHCP is working: `pct exec <container-id> -- ip addr`
+2. Check DNS resolution: `pct exec <container-id> -- ping -c 1 google.com`
+3. Review Proxmox firewall rules on the bridge
+
+### Runner Not Appearing in GitHub
+
+1. Check the runner service: `pct exec <container-id> -- systemctl status actions.runner.*`
+2. Verify token permissions (repo or admin:org)
+3. Check logs: `pct exec <container-id> -- journalctl -u actions.runner.* -n 50`
+
+### .NET SDK Issues
+
+The script installs .NET 9.0 via Ubuntu's backports PPA. If you need .NET 8.0 instead:
+
+```bash
+# Inside the container
+apt remove dotnet-sdk-9.0
+apt install dotnet-sdk-8.0
+```
+
+## Security Considerations
+
+- **Runner user**: The runner operates as a dedicated `runner` user (not root)
+- **Sudo permissions**: Limited to cache dropping (`/proc/sys/vm/drop_caches`) for benchmarking
+- **Container isolation**: LXC provides namespace isolation from the host
+- **Token handling**: Tokens are only used during registration and not stored long-term
+
+**⚠️ Important**: Only use self-hosted runners with repositories you control. Avoid public repositories or untrusted code, as runners execute arbitrary workflow code.
+
+## Requirements
+
+- Proxmox VE 8 or later
+- Internet connectivity for package downloads
+- Sufficient storage for Ubuntu 24.04 template (~500MB) + container disk (default: 20GB)
+- GitHub Personal Access Token with appropriate permissions
+
+## License
+
+This project is provided as-is for public use. Feel free to modify and adapt to your needs.
+
+## Contributing
+
+Issues and pull requests are welcome! Please ensure any contributions maintain compatibility with Proxmox VE 8 and Ubuntu 24.04 LTS.

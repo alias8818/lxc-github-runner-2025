@@ -432,6 +432,10 @@ log "-- Installing .NET 9.0 SDK and development tools"
 pct exec "$PCTID" -- bash -c "
     set -euo pipefail
 
+    # Install software-properties-common for add-apt-repository command
+    echo 'Installing software-properties-common...'
+    apt-get install -y software-properties-common
+
     # Add .NET backports PPA for .NET 9.0 on Ubuntu 24.04
     echo 'Adding .NET backports PPA...'
     add-apt-repository -y ppa:dotnet/backports
