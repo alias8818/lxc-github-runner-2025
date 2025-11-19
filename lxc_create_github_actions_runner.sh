@@ -274,7 +274,7 @@ fi
 log "-- Downloading GitHub Actions runner v$GITHUB_RUNNER_VERSION"
 pct exec "$PCTID" -- bash -c "
     set -euo pipefail
-    mkdir -p actions-runner && cd actions-runner
+    mkdir -p /opt/actions-runner && cd /opt/actions-runner
     if ! curl -fsSL -o '$GITHUB_RUNNER_FILE' '$GITHUB_RUNNER_URL'; then
         echo 'Failed to download GitHub runner'
         exit 1
@@ -293,7 +293,6 @@ pct exec "$PCTID" -- bash -c "
 log "-- Configuring and starting runner"
 pct exec "$PCTID" -- bash -c "
     set -euo pipefail
-    cd actions-runner
 
     # Create a runner user instead of running as root
     if ! id -u runner &>/dev/null; then
@@ -302,9 +301,10 @@ pct exec "$PCTID" -- bash -c "
     fi
 
     # Change ownership
-    chown -R runner:runner /root/actions-runner
+    chown -R runner:runner /opt/actions-runner
 
     # Configure and start as runner user
+    cd /opt/actions-runner
     sudo -u runner ./config.sh --unattended --url https://github.com/$OWNERREPO --token $RUNNER_TOKEN
     ./svc.sh install runner
     ./svc.sh start
