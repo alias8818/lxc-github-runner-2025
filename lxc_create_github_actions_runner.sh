@@ -18,7 +18,8 @@ PCT_ARCH="amd64"
 PCT_CORES="4"
 PCT_MEMORY="4096"
 PCT_SWAP="4096"
-PCT_STORAGE="local-lvm"
+DEFAULT_STORAGE="local-lvm"
+DEFAULT_BRIDGE="vmbr0"
 USE_DHCP="yes"  # Set to "no" to use static IP configuration
 DEFAULT_IP_ADDR="192.168.0.132/24"
 DEFAULT_GATEWAY="192.168.0.1"
@@ -60,17 +61,43 @@ error() {
   echo -e "\033[31mError: $text\033[0m" >&2
 }
 
+# Proxmox infrastructure configuration
+log "=== Proxmox Configuration ==="
+
+# Prompt for storage backend
+echo "Available storage backends:"
+pvesm status | awk 'NR>1 {print "  - " $1 " (" $2 ")"}'
+echo ""
+read -r -e -p "Storage backend for container [$DEFAULT_STORAGE]: " input_storage
+PCT_STORAGE=${input_storage:-$DEFAULT_STORAGE}
+
+# Validate storage exists
+if ! pvesm status | awk 'NR>1 {print $1}' | grep -q "^${PCT_STORAGE}$"; then
+    error "Storage backend '$PCT_STORAGE' not found"
+    exit 1
+fi
+
+# Prompt for network bridge
+echo ""
+echo "Available network bridges:"
+brctl show 2>/dev/null | awk 'NR>1 {print "  - " $1}' || ip link show type bridge | grep -oP '^\d+:\s+\K[^:]+' | sed 's/^/  - /'
+echo ""
+read -r -e -p "Network bridge for container [$DEFAULT_BRIDGE]: " input_bridge
+BRIDGE=${input_bridge:-$DEFAULT_BRIDGE}
+
+echo ""
+
 # Network configuration
 if [ "$USE_DHCP" = "yes" ]; then
     log "Using DHCP for network configuration"
-    NETWORK_CONFIG="name=eth0,bridge=vmbr0,ip=dhcp,type=veth"
+    NETWORK_CONFIG="name=eth0,bridge=$BRIDGE,ip=dhcp,type=veth"
 else
     log "Using static IP configuration"
     read -r -e -p "Container Address IP (CIDR format) [$DEFAULT_IP_ADDR]: " input_ip_addr
     IP_ADDR=${input_ip_addr:-$DEFAULT_IP_ADDR}
     read -r -e -p "Container Gateway IP [$DEFAULT_GATEWAY]: " input_gateway
     GATEWAY=${input_gateway:-$DEFAULT_GATEWAY}
-    NETWORK_CONFIG="name=eth0,bridge=vmbr0,gw=$GATEWAY,ip=$IP_ADDR,type=veth"
+    NETWORK_CONFIG="name=eth0,bridge=$BRIDGE,gw=$GATEWAY,ip=$IP_ADDR,type=veth"
 fi
 
 # DNS configuration (applies to both DHCP and static)

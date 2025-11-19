@@ -50,6 +50,7 @@ Creates and sets up a self-hosted GitHub Actions runner in an LXC container on P
 ### Features
 
 - **DHCP by default**: Containers get IP addresses automatically (configurable via `USE_DHCP` variable)
+- **Interactive configuration**: Prompts for storage backend and network bridge with available options displayed
 - **Security improvements**: Runner runs as dedicated user, not root
 - **Checksum verification**: Downloads are verified with SHA256 checksums
 - **Better error handling**: Comprehensive error checking and automatic cleanup on failure
@@ -66,10 +67,19 @@ Since the new container has Docker support, it cannot be run unprivileged. This 
 # Download the script
 curl -O https://raw.githubusercontent.com/oNaiPs/proxmox-scripts/main/lxc_create_github_actions_runner.sh
 
-# Inspect script, customize variables
+# Inspect script, customize variables if needed
 
 # Run the script
 bash lxc_create_github_actions_runner.sh
 ```
+
+The script will prompt you for:
+- GitHub Token (or set `GITHUB_TOKEN` environment variable)
+- GitHub Owner/Repo (or set `OWNERREPO` environment variable)
+- Storage backend (shows available options, default: `local-lvm`)
+- Network bridge (shows available options, default: `vmbr0`)
+- DNS Server (default: `1.1.1.1`)
+
+To use static IP instead of DHCP, edit the script and set `USE_DHCP="no"` before running.
 
 Warning: make sure you read and understand the code you are running before executing it on your machine.
