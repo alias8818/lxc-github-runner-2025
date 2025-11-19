@@ -251,6 +251,52 @@ if ! pct exec "$PCTID" -- bash -c "curl -fsSL https://get.docker.com | sh"; then
     exit 1
 fi
 
+# Install .NET 9.0 SDK and development tools
+log "-- Installing .NET 9.0 SDK and development tools"
+pct exec "$PCTID" -- bash -c "
+    set -euo pipefail
+
+    # Install .NET 9.0 SDK
+    echo 'Installing .NET 9.0 SDK...'
+    apt-get install -y dotnet-sdk-9.0
+
+    # Verify .NET installation
+    dotnet --version
+    dotnet --list-sdks
+
+    # Install PowerShell
+    echo 'Installing PowerShell...'
+    wget -q https://packages.microsoft.com/config/ubuntu/\$(lsb_release -rs)/packages-microsoft-prod.deb
+    dpkg -i packages-microsoft-prod.deb
+    rm packages-microsoft-prod.deb
+    apt-get update
+    apt-get install -y powershell
+
+    # Install build tools
+    echo 'Installing build essentials and utilities...'
+    apt-get install -y build-essential bc
+
+    # Verify installations
+    echo '=== Installed Versions ==='
+    echo \".NET SDK: \$(dotnet --version)\"
+    echo \"PowerShell: \$(pwsh --version | head -1)\"
+    echo \"Git: \$(git --version)\"
+"
+
+# Configure sudo for runner user (for cache dropping in CI)
+log "-- Configuring sudo permissions for runner user"
+pct exec "$PCTID" -- bash -c "
+    # Create runner user first if it doesn't exist (for sudo config)
+    if ! id -u runner &>/dev/null; then
+        useradd -m -s /bin/bash runner
+        usermod -aG docker runner
+    fi
+
+    # Allow runner to drop caches without password (useful for benchmarks)
+    echo 'runner ALL=(ALL) NOPASSWD: /usr/bin/tee /proc/sys/vm/drop_caches' > /etc/sudoers.d/github-runner-cache
+    chmod 0440 /etc/sudoers.d/github-runner-cache
+"
+
 # Get runner installation token
 log "-- Getting runner installation token"
 RES=$(curl -fsSL \

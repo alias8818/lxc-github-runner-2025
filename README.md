@@ -43,6 +43,10 @@ Creates and sets up a self-hosted GitHub Actions runner in an LXC container on P
 1. Configures networking (DHCP by default, static IP optional)
 1. Installs apt-get dependencies (git, curl, zip, jq)
 1. Installs Docker
+1. Installs .NET 9.0 SDK for building .NET applications
+1. Installs PowerShell for running PowerShell scripts in CI
+1. Installs build tools (build-essential, bc)
+1. Configures sudo permissions for cache dropping (useful for benchmarks)
 1. Downloads and verifies GitHub Actions runner (with SHA256 checksum)
 1. Configures runner to run as dedicated 'runner' user (not root)
 1. Registers and starts the runner as a system service
@@ -58,6 +62,7 @@ Creates and sets up a self-hosted GitHub Actions runner in an LXC container on P
 - **Checksum verification**: Downloads are verified with SHA256 checksums
 - **Template caching**: Avoids re-downloading Ubuntu template if already present
 - **Latest versions**: Uses GitHub Actions runner v2.329.0 and Ubuntu 24.04 LTS
+- **.NET 9.0 ready**: Pre-installed with .NET 9.0 SDK, PowerShell, and build tools for .NET development
 
 ### Security Warning
 
