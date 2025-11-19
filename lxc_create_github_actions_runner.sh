@@ -8,6 +8,25 @@
 
 set -euo pipefail
 
+# Container cleanup tracking
+CONTAINER_CREATED=0
+PCTID=""
+
+# Cleanup function - destroys container on script failure
+cleanup_on_error() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ] && [ $CONTAINER_CREATED -eq 1 ] && [ -n "$PCTID" ]; then
+        echo ""
+        error "Script failed with exit code $exit_code. Cleaning up container $PCTID..."
+        pct stop "$PCTID" 2>/dev/null || true
+        pct destroy "$PCTID" 2>/dev/null || true
+        error "Container $PCTID has been destroyed"
+    fi
+}
+
+# Set trap for cleanup on error
+trap cleanup_on_error EXIT
+
 # Variables
 GITHUB_RUNNER_VERSION="2.329.0"
 GITHUB_RUNNER_URL="https://github.com/actions/runner/releases/download/v${GITHUB_RUNNER_VERSION}/actions-runner-linux-x64-${GITHUB_RUNNER_VERSION}.tar.gz"
@@ -66,6 +85,36 @@ log() {
 error() {
   local text="$1"
   echo -e "\033[31mError: $text\033[0m" >&2
+}
+
+# Wait for network connectivity in container
+wait_for_network() {
+    local container_id=$1
+    local max_attempts=30
+    local attempt=0
+
+    log "-- Waiting for network connectivity..."
+
+    while [ $attempt -lt $max_attempts ]; do
+        # Test DNS resolution and connectivity using ping (available in base image)
+        if pct exec "$container_id" -- ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+            # Test DNS resolution
+            if pct exec "$container_id" -- ping -c 1 -W 2 archive.ubuntu.com >/dev/null 2>&1; then
+                log "-- Network connectivity confirmed (DNS and internet working)"
+                return 0
+            else
+                log "-- Internet reachable but DNS not working yet, continuing to wait..."
+            fi
+        fi
+
+        attempt=$((attempt + 1))
+        echo -n "."
+        sleep 2
+    done
+
+    echo ""
+    error "Network connectivity check timed out after $((max_attempts * 2)) seconds"
+    return 1
 }
 
 # Proxmox infrastructure configuration
@@ -146,11 +195,13 @@ if ! pct create "$PCTID" "$TEMPL_FILE" \
     exit 1
 fi
 
+# Mark container as created for cleanup trap
+CONTAINER_CREATED=1
+
 # Resize the container
 log "-- Resizing container to $PCTSIZE"
 if ! pct resize "$PCTID" rootfs "$PCTSIZE"; then
     error "Failed to resize container"
-    pct destroy "$PCTID"
     exit 1
 fi
 
@@ -158,7 +209,6 @@ fi
 log "-- Starting container"
 if ! pct start "$PCTID"; then
     error "Failed to start container"
-    pct destroy "$PCTID"
     exit 1
 fi
 
@@ -170,15 +220,29 @@ for i in {1..30}; do
     sleep 2
 done
 
-# Wait a bit more for network to be fully up
-sleep 5
-
-# Run updates inside container
-log "-- Running updates"
-if ! pct exec "$PCTID" -- bash -c "apt-get update -y && apt-get install -y git curl zip jq"; then
-    error "Failed to install basic packages"
+# Wait for network connectivity
+if ! wait_for_network "$PCTID"; then
+    error "Container network is not ready"
     exit 1
 fi
+
+# Run updates inside container with retry logic
+log "-- Running updates"
+retry_count=0
+max_retries=3
+while [ $retry_count -lt $max_retries ]; do
+    if pct exec "$PCTID" -- bash -c "apt-get update -y && apt-get install -y git curl zip jq"; then
+        break
+    fi
+    retry_count=$((retry_count + 1))
+    if [ $retry_count -lt $max_retries ]; then
+        log "-- Package installation failed, retrying ($retry_count/$max_retries)..."
+        sleep 5
+    else
+        error "Failed to install basic packages after $max_retries attempts"
+        exit 1
+    fi
+done
 
 # Install Docker inside the container
 log "-- Installing docker"
@@ -259,6 +323,9 @@ fi
 
 log "-- GitHub Actions runner has been installed and started"
 log "-- Check your repository's Actions settings to see the new runner"
+
+# Mark successful completion to prevent cleanup
+CONTAINER_CREATED=0
 
 # Cleanup downloaded template (optional - comment out if you want to keep it for future use)
 # rm -f "$TEMPL_FILE"
