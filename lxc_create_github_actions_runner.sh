@@ -432,11 +432,9 @@ log "-- Installing .NET 9.0 SDK and development tools"
 pct exec "$PCTID" -- bash -c "
     set -euo pipefail
 
-    # Add Microsoft package repository
-    echo 'Adding Microsoft package repository...'
-    wget -q https://packages.microsoft.com/config/ubuntu/\$(lsb_release -rs)/packages-microsoft-prod.deb
-    dpkg -i packages-microsoft-prod.deb
-    rm packages-microsoft-prod.deb
+    # Add .NET backports PPA for .NET 9.0 on Ubuntu 24.04
+    echo 'Adding .NET backports PPA...'
+    add-apt-repository -y ppa:dotnet/backports
     apt-get update
 
     # Install .NET 9.0 SDK
@@ -447,8 +445,12 @@ pct exec "$PCTID" -- bash -c "
     dotnet --version
     dotnet --list-sdks
 
-    # Install PowerShell
+    # Install PowerShell (requires Microsoft repository)
     echo 'Installing PowerShell...'
+    wget -q https://packages.microsoft.com/config/ubuntu/\$(lsb_release -rs)/packages-microsoft-prod.deb
+    dpkg -i packages-microsoft-prod.deb
+    rm packages-microsoft-prod.deb
+    apt-get update
     apt-get install -y powershell
 
     # Install build tools
