@@ -427,17 +427,17 @@ while [ $retry_count -lt $max_retries ]; do
     fi
 done
 
-# Install Docker inside the container
-log "-- Installing docker"
-if ! pct exec "$PCTID" -- bash -c "curl -fsSL https://get.docker.com | sh"; then
-    error "Failed to install Docker"
-    exit 1
-fi
-
 # Install .NET 9.0 SDK and development tools
 log "-- Installing .NET 9.0 SDK and development tools"
 pct exec "$PCTID" -- bash -c "
     set -euo pipefail
+
+    # Add Microsoft package repository
+    echo 'Adding Microsoft package repository...'
+    wget -q https://packages.microsoft.com/config/ubuntu/\$(lsb_release -rs)/packages-microsoft-prod.deb
+    dpkg -i packages-microsoft-prod.deb
+    rm packages-microsoft-prod.deb
+    apt-get update
 
     # Install .NET 9.0 SDK
     echo 'Installing .NET 9.0 SDK...'
@@ -449,10 +449,6 @@ pct exec "$PCTID" -- bash -c "
 
     # Install PowerShell
     echo 'Installing PowerShell...'
-    wget -q https://packages.microsoft.com/config/ubuntu/\$(lsb_release -rs)/packages-microsoft-prod.deb
-    dpkg -i packages-microsoft-prod.deb
-    rm packages-microsoft-prod.deb
-    apt-get update
     apt-get install -y powershell
 
     # Install build tools
@@ -472,7 +468,6 @@ pct exec "$PCTID" -- bash -c "
     # Create runner user first if it doesn't exist (for sudo config)
     if ! id -u runner &>/dev/null; then
         useradd -m -s /bin/bash runner
-        usermod -aG docker runner
     fi
 
     # Allow runner to drop caches without password (useful for benchmarks)
