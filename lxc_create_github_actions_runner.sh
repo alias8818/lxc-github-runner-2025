@@ -392,7 +392,7 @@ fi
 # This solves the common "container starts too fast before DHCP" issue
 log "-- Restarting container to ensure DHCP obtains IP address..."
 sleep 5
-pct restart "$PCTID"
+pct reboot "$PCTID"
 sleep 5
 
 log "-- Waiting for container to be ready..."
