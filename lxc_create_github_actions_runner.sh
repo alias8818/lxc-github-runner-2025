@@ -39,13 +39,20 @@ if [ -z "${GITHUB_TOKEN:-}" ]; then
     echo
 fi
 if [ -z "${OWNERREPO:-}" ]; then
-    read -r -p "Enter github owner/repo: " OWNERREPO
+    read -r -p "Enter github owner/repo (format: owner/repository): " OWNERREPO
     echo
 fi
 
 # Validate inputs
 if [ -z "$GITHUB_TOKEN" ] || [ -z "$OWNERREPO" ]; then
     echo "Error: GITHUB_TOKEN and OWNERREPO are required"
+    exit 1
+fi
+
+# Validate OWNERREPO format (must contain a slash)
+if [[ ! "$OWNERREPO" =~ ^[^/]+/[^/]+$ ]]; then
+    echo "Error: OWNERREPO must be in format 'owner/repository' (e.g., 'octocat/Hello-World')"
+    echo "You provided: '$OWNERREPO'"
     exit 1
 fi
 
