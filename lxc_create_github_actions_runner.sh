@@ -427,14 +427,19 @@ while [ $retry_count -lt $max_retries ]; do
     fi
 done
 
-# Install .NET 8.0 SDK and development tools
-log "-- Installing .NET 8.0 SDK and development tools"
+# Install .NET 9.0 SDK and development tools
+log "-- Installing .NET 9.0 SDK and development tools"
 pct exec "$PCTID" -- bash -c "
     set -euo pipefail
 
-    # Install .NET 8.0 SDK (available in Ubuntu 24.04 default repos)
-    echo 'Installing .NET 8.0 SDK...'
-    apt-get install -y dotnet-sdk-8.0
+    # Add .NET backports PPA for .NET 9.0 on Ubuntu 24.04
+    echo 'Adding .NET backports PPA...'
+    add-apt-repository -y ppa:dotnet/backports
+    apt-get update
+
+    # Install .NET 9.0 SDK
+    echo 'Installing .NET 9.0 SDK...'
+    apt-get install -y dotnet-sdk-9.0
 
     # Verify .NET installation
     dotnet --version
