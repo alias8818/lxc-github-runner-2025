@@ -51,9 +51,11 @@ Creates and sets up a self-hosted GitHub Actions runner in an LXC container on P
 
 - **DHCP by default**: Containers get IP addresses automatically (configurable via `USE_DHCP` variable)
 - **Interactive configuration**: Prompts for storage backend and network bridge with available options displayed
+- **Network connectivity check**: Waits for DNS and internet before installing packages (up to 60 seconds)
+- **Retry logic**: Automatically retries package installation on network failures (3 attempts)
+- **Automatic cleanup**: Failed containers are automatically destroyed on script errors
 - **Security improvements**: Runner runs as dedicated user, not root
 - **Checksum verification**: Downloads are verified with SHA256 checksums
-- **Better error handling**: Comprehensive error checking and automatic cleanup on failure
 - **Template caching**: Avoids re-downloading Ubuntu template if already present
 - **Latest versions**: Uses GitHub Actions runner v2.329.0 and Ubuntu 24.04 LTS
 
