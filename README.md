@@ -70,23 +70,85 @@ Since the new container has Docker support, it cannot be run unprivileged. This 
 
 ### Instructions
 
+#### Interactive Mode
+
 ```bash
 # Download the script
 curl -O https://raw.githubusercontent.com/alias8818/lxc-github-runner-2025/main/lxc_create_github_actions_runner.sh
 
-# Inspect script, customize variables if needed
-
-# Run the script
+# Run the script interactively
 bash lxc_create_github_actions_runner.sh
 ```
 
 The script will prompt you for:
-- GitHub Token (or set `GITHUB_TOKEN` environment variable)
-- GitHub Owner/Repo (or set `OWNERREPO` environment variable)
-- Storage backend (shows available options, default: `local-lvm`)
-- Network bridge (shows available options, default: `vmbr0`)
+- GitHub Token
+- GitHub username/organization
+- GitHub repository name
+- Storage backend (interactive dropdown menu)
+- Network bridge (interactive dropdown menu)
 - DNS Server (default: `1.1.1.1`)
 
-To use static IP instead of DHCP, edit the script and set `USE_DHCP="no"` before running.
+#### Automated Mode
 
-Warning: make sure you read and understand the code you are running before executing it on your machine.
+For automation, CI/CD, or multiple runners:
+
+```bash
+# Repository-level runner (single repo)
+bash lxc_create_github_actions_runner.sh \
+  --user alias8818 \
+  --repo BarrierClone \
+  --token ghp_xxxxxxxxxxxxx
+
+# Organization-level runner (available to ALL repos in org)
+bash lxc_create_github_actions_runner.sh \
+  --org alias8818 \
+  --token ghp_xxxxxxxxxxxxx
+
+# With infrastructure options
+bash lxc_create_github_actions_runner.sh \
+  --org alias8818 \
+  --token ghp_xxxxxxxxxxxxx \
+  --storage pve_storage \
+  --bridge vmbr0 \
+  --dns 1.1.1.1
+
+# Partially automated (will prompt for missing values)
+bash lxc_create_github_actions_runner.sh \
+  --user alias8818 \
+  --repo BarrierClone
+
+# Show help
+bash lxc_create_github_actions_runner.sh --help
+```
+
+#### Runner Scope
+
+**Repository-level runners**:
+- Dedicated to a single repository
+- Use: `--user <username> --repo <repository>`
+
+**Organization-level runners**:
+- Available to ALL repositories in your organization
+- Use: `--org <organization>`
+- Requires: Token with `admin:org` permissions
+
+#### Command-Line Options
+
+- `--user <username>` - GitHub username (for repo-level runners)
+- `--repo <repository>` - GitHub repository name (for repo-level runners)
+- `--org <organization>` - GitHub organization (for org-level runners)
+- `--token <token>` - GitHub Personal Access Token
+- `--storage <storage>` - Proxmox storage backend
+- `--bridge <bridge>` - Network bridge
+- `--dns <dns>` - DNS server
+- `-h, --help` - Show help message
+
+#### Network Configuration
+
+The script uses **DHCP by default** with these fixes for common Proxmox DHCP issues:
+- **Firewall disabled** on network interface (prevents DHCP blocking)
+- **Container restart** after creation (ensures DHCP client gets IP)
+
+To use static IP instead, edit the script and set `USE_DHCP="no"` before running.
+
+**Warning**: Make sure you read and understand the code you are running before executing it on your machine.
