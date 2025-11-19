@@ -93,10 +93,20 @@ The script will prompt you for:
 For automation, CI/CD, or multiple runners:
 
 ```bash
-# Fully automated (no prompts)
+# Repository-level runner (single repo)
 bash lxc_create_github_actions_runner.sh \
   --user alias8818 \
   --repo BarrierClone \
+  --token ghp_xxxxxxxxxxxxx
+
+# Organization-level runner (available to ALL repos in org)
+bash lxc_create_github_actions_runner.sh \
+  --org alias8818 \
+  --token ghp_xxxxxxxxxxxxx
+
+# With infrastructure options
+bash lxc_create_github_actions_runner.sh \
+  --org alias8818 \
   --token ghp_xxxxxxxxxxxxx \
   --storage pve_storage \
   --bridge vmbr0 \
@@ -111,10 +121,22 @@ bash lxc_create_github_actions_runner.sh \
 bash lxc_create_github_actions_runner.sh --help
 ```
 
+#### Runner Scope
+
+**Repository-level runners**:
+- Dedicated to a single repository
+- Use: `--user <username> --repo <repository>`
+
+**Organization-level runners**:
+- Available to ALL repositories in your organization
+- Use: `--org <organization>`
+- Requires: Token with `admin:org` permissions
+
 #### Command-Line Options
 
-- `--user <username>` - GitHub username or organization
-- `--repo <repository>` - GitHub repository name
+- `--user <username>` - GitHub username (for repo-level runners)
+- `--repo <repository>` - GitHub repository name (for repo-level runners)
+- `--org <organization>` - GitHub organization (for org-level runners)
 - `--token <token>` - GitHub Personal Access Token
 - `--storage <storage>` - Proxmox storage backend
 - `--bridge <bridge>` - Network bridge

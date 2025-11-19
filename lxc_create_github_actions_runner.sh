@@ -51,9 +51,17 @@ Usage: $0 [OPTIONS]
 
 Creates a GitHub Actions self-hosted runner in an LXC container on Proxmox.
 
+RUNNER SCOPE:
+    Repository-level (default):
+        --user <username> --repo <repository>
+
+    Organization-level:
+        --org <organization>
+
 OPTIONS:
-    --user <username>       GitHub username/organization
-    --repo <repository>     GitHub repository name
+    --user <username>       GitHub username (for repo-level runners)
+    --repo <repository>     GitHub repository name (for repo-level runners)
+    --org <organization>    GitHub organization (for org-level runners)
     --token <token>         GitHub Personal Access Token
     --storage <storage>     Proxmox storage backend (default: $DEFAULT_STORAGE)
     --bridge <bridge>       Network bridge (default: $DEFAULT_BRIDGE)
@@ -64,8 +72,11 @@ EXAMPLES:
     # Interactive mode (will prompt for missing values)
     $0
 
-    # Automated mode with all parameters
+    # Repository-level runner
     $0 --user alias8818 --repo BarrierClone --token ghp_xxxxx
+
+    # Organization-level runner (available to all repos in org)
+    $0 --org alias8818 --token ghp_xxxxx
 
     # Partial automation
     $0 --user alias8818 --repo BarrierClone --storage pve_storage
@@ -74,6 +85,7 @@ EOF
 
 GITHUB_USER=""
 GITHUB_REPO=""
+GITHUB_ORG=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -83,6 +95,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --repo)
             GITHUB_REPO="$2"
+            shift 2
+            ;;
+        --org)
+            GITHUB_ORG="$2"
             shift 2
             ;;
         --token)
@@ -121,41 +137,85 @@ for cmd in pct pvesh curl jq sha256sum; do
     fi
 done
 
-# Build OWNERREPO from --user and --repo if provided
-if [ -n "$GITHUB_USER" ] && [ -n "$GITHUB_REPO" ]; then
+# Determine runner scope (org vs repo)
+RUNNER_SCOPE=""
+if [ -n "$GITHUB_ORG" ]; then
+    RUNNER_SCOPE="org"
+    OWNERREPO="$GITHUB_ORG"
+elif [ -n "$GITHUB_USER" ] && [ -n "$GITHUB_REPO" ]; then
+    RUNNER_SCOPE="repo"
     OWNERREPO="$GITHUB_USER/$GITHUB_REPO"
 fi
 
-# Ask for GitHub token and owner/repo if they're not set
+# Ask for GitHub token if not set
 if [ -z "${GITHUB_TOKEN:-}" ]; then
     read -r -p "Enter GitHub token: " GITHUB_TOKEN
     echo
 fi
 
-if [ -z "${OWNERREPO:-}" ]; then
-    if [ -z "$GITHUB_USER" ]; then
-        read -r -p "Enter GitHub username/organization: " GITHUB_USER
-    fi
-    if [ -z "$GITHUB_REPO" ]; then
-        read -r -p "Enter GitHub repository name: " GITHUB_REPO
-    fi
-    OWNERREPO="$GITHUB_USER/$GITHUB_REPO"
+# Ask for runner scope if not determined
+if [ -z "$RUNNER_SCOPE" ]; then
+    echo "Select runner scope:"
+    select scope in "Repository (single repo)" "Organization (all repos in org)"; do
+        case $scope in
+            "Repository (single repo)")
+                RUNNER_SCOPE="repo"
+                break
+                ;;
+            "Organization (all repos in org)")
+                RUNNER_SCOPE="org"
+                break
+                ;;
+            *)
+                echo "Invalid selection. Please try again."
+                ;;
+        esac
+    done
     echo
 fi
 
-# Validate inputs
+# Collect owner/repo or org based on scope
+if [ "$RUNNER_SCOPE" = "org" ]; then
+    if [ -z "$GITHUB_ORG" ]; then
+        read -r -p "Enter GitHub organization name: " GITHUB_ORG
+        OWNERREPO="$GITHUB_ORG"
+    fi
+    RUNNER_URL="https://github.com/$GITHUB_ORG"
+    API_URL="https://api.github.com/orgs/$GITHUB_ORG/actions/runners/registration-token"
+else
+    # Repository scope
+    if [ -z "$OWNERREPO" ]; then
+        if [ -z "$GITHUB_USER" ]; then
+            read -r -p "Enter GitHub username/organization: " GITHUB_USER
+        fi
+        if [ -z "$GITHUB_REPO" ]; then
+            read -r -p "Enter GitHub repository name: " GITHUB_REPO
+        fi
+        OWNERREPO="$GITHUB_USER/$GITHUB_REPO"
+    fi
+
+    # Validate OWNERREPO format (must contain a slash)
+    if [[ ! "$OWNERREPO" =~ ^[^/]+/[^/]+$ ]]; then
+        echo "Error: Repository must be in format 'owner/repository' (e.g., 'octocat/Hello-World')"
+        echo "You provided: '$OWNERREPO'"
+        exit 1
+    fi
+
+    RUNNER_URL="https://github.com/$OWNERREPO"
+    API_URL="https://api.github.com/repos/$OWNERREPO/actions/runners/registration-token"
+fi
+
+# Validate final inputs
 if [ -z "$GITHUB_TOKEN" ] || [ -z "$OWNERREPO" ]; then
-    echo "Error: GitHub token and repository are required"
+    echo "Error: GitHub token and repository/organization are required"
     show_usage
     exit 1
 fi
 
-# Validate OWNERREPO format (must contain a slash)
-if [[ ! "$OWNERREPO" =~ ^[^/]+/[^/]+$ ]]; then
-    echo "Error: Repository must be in format 'owner/repository' (e.g., 'octocat/Hello-World')"
-    echo "You provided: '$OWNERREPO'"
-    exit 1
-fi
+echo ""
+log "Runner scope: $RUNNER_SCOPE"
+log "Target: $OWNERREPO"
+echo ""
 
 # log function prints text in yellow
 log() {
@@ -420,13 +480,13 @@ pct exec "$PCTID" -- bash -c "
 "
 
 # Get runner installation token
-log "-- Getting runner installation token"
+log "-- Getting runner installation token for $RUNNER_SCOPE: $OWNERREPO"
 RES=$(curl -fsSL \
   -X POST \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer $GITHUB_TOKEN"  \
   -H "X-GitHub-Api-Version: 2022-11-28" \
-  "https://api.github.com/repos/$OWNERREPO/actions/runners/registration-token")
+  "$API_URL")
 
 if ! RUNNER_TOKEN=$(echo "$RES" | jq -r '.token'); then
     error "Failed to extract runner token. Response: $RES"
@@ -434,7 +494,8 @@ if ! RUNNER_TOKEN=$(echo "$RES" | jq -r '.token'); then
 fi
 
 if [ -z "$RUNNER_TOKEN" ] || [ "$RUNNER_TOKEN" = "null" ]; then
-    error "Invalid runner token received. Check your GITHUB_TOKEN and OWNERREPO"
+    error "Invalid runner token received. Check your GITHUB_TOKEN and permissions"
+    error "For org-level runners, you need admin:org permissions"
     exit 1
 fi
 
@@ -473,7 +534,7 @@ pct exec "$PCTID" -- bash -c "
 
     # Configure and start as runner user
     cd /opt/actions-runner
-    sudo -u runner ./config.sh --unattended --url https://github.com/$OWNERREPO --token $RUNNER_TOKEN
+    sudo -u runner ./config.sh --unattended --url $RUNNER_URL --token $RUNNER_TOKEN
     ./svc.sh install runner
     ./svc.sh start
 "
