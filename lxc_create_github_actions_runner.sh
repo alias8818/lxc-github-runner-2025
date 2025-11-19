@@ -427,28 +427,25 @@ while [ $retry_count -lt $max_retries ]; do
     fi
 done
 
-# Install .NET 9.0 SDK and development tools
-log "-- Installing .NET 9.0 SDK and development tools"
+# Install .NET 8.0 SDK and development tools
+log "-- Installing .NET 8.0 SDK and development tools"
 pct exec "$PCTID" -- bash -c "
     set -euo pipefail
 
-    # Add Microsoft package repository
-    echo 'Adding Microsoft package repository...'
-    wget -q https://packages.microsoft.com/config/ubuntu/\$(lsb_release -rs)/packages-microsoft-prod.deb
-    dpkg -i packages-microsoft-prod.deb
-    rm packages-microsoft-prod.deb
-    apt-get update
-
-    # Install .NET 9.0 SDK
-    echo 'Installing .NET 9.0 SDK...'
-    apt-get install -y dotnet-sdk-9.0
+    # Install .NET 8.0 SDK (available in Ubuntu 24.04 default repos)
+    echo 'Installing .NET 8.0 SDK...'
+    apt-get install -y dotnet-sdk-8.0
 
     # Verify .NET installation
     dotnet --version
     dotnet --list-sdks
 
-    # Install PowerShell
+    # Install PowerShell (requires Microsoft repository)
     echo 'Installing PowerShell...'
+    wget -q https://packages.microsoft.com/config/ubuntu/\$(lsb_release -rs)/packages-microsoft-prod.deb
+    dpkg -i packages-microsoft-prod.deb
+    rm packages-microsoft-prod.deb
+    apt-get update
     apt-get install -y powershell
 
     # Install build tools
