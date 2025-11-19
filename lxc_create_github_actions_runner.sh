@@ -44,6 +44,75 @@ DEFAULT_IP_ADDR="192.168.0.132/24"
 DEFAULT_GATEWAY="192.168.0.1"
 DEFAULT_DNS_SERVER="1.1.1.1"
 
+# Parse command-line arguments
+show_usage() {
+    cat << EOF
+Usage: $0 [OPTIONS]
+
+Creates a GitHub Actions self-hosted runner in an LXC container on Proxmox.
+
+OPTIONS:
+    --user <username>       GitHub username/organization
+    --repo <repository>     GitHub repository name
+    --token <token>         GitHub Personal Access Token
+    --storage <storage>     Proxmox storage backend (default: $DEFAULT_STORAGE)
+    --bridge <bridge>       Network bridge (default: $DEFAULT_BRIDGE)
+    --dns <dns>             DNS server (default: $DEFAULT_DNS_SERVER)
+    -h, --help              Show this help message
+
+EXAMPLES:
+    # Interactive mode (will prompt for missing values)
+    $0
+
+    # Automated mode with all parameters
+    $0 --user alias8818 --repo BarrierClone --token ghp_xxxxx
+
+    # Partial automation
+    $0 --user alias8818 --repo BarrierClone --storage pve_storage
+EOF
+}
+
+GITHUB_USER=""
+GITHUB_REPO=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --user)
+            GITHUB_USER="$2"
+            shift 2
+            ;;
+        --repo)
+            GITHUB_REPO="$2"
+            shift 2
+            ;;
+        --token)
+            GITHUB_TOKEN="$2"
+            shift 2
+            ;;
+        --storage)
+            PCT_STORAGE="$2"
+            shift 2
+            ;;
+        --bridge)
+            BRIDGE="$2"
+            shift 2
+            ;;
+        --dns)
+            DNS_SERVER="$2"
+            shift 2
+            ;;
+        -h|--help)
+            show_usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_usage
+            exit 1
+            ;;
+    esac
+done
+
 # Check for required commands
 for cmd in pct pvesh curl jq sha256sum; do
     if ! command -v "$cmd" &> /dev/null; then
@@ -52,25 +121,38 @@ for cmd in pct pvesh curl jq sha256sum; do
     fi
 done
 
+# Build OWNERREPO from --user and --repo if provided
+if [ -n "$GITHUB_USER" ] && [ -n "$GITHUB_REPO" ]; then
+    OWNERREPO="$GITHUB_USER/$GITHUB_REPO"
+fi
+
 # Ask for GitHub token and owner/repo if they're not set
 if [ -z "${GITHUB_TOKEN:-}" ]; then
-    read -r -p "Enter github token: " GITHUB_TOKEN
+    read -r -p "Enter GitHub token: " GITHUB_TOKEN
     echo
 fi
+
 if [ -z "${OWNERREPO:-}" ]; then
-    read -r -p "Enter github owner/repo (format: owner/repository): " OWNERREPO
+    if [ -z "$GITHUB_USER" ]; then
+        read -r -p "Enter GitHub username/organization: " GITHUB_USER
+    fi
+    if [ -z "$GITHUB_REPO" ]; then
+        read -r -p "Enter GitHub repository name: " GITHUB_REPO
+    fi
+    OWNERREPO="$GITHUB_USER/$GITHUB_REPO"
     echo
 fi
 
 # Validate inputs
 if [ -z "$GITHUB_TOKEN" ] || [ -z "$OWNERREPO" ]; then
-    echo "Error: GITHUB_TOKEN and OWNERREPO are required"
+    echo "Error: GitHub token and repository are required"
+    show_usage
     exit 1
 fi
 
 # Validate OWNERREPO format (must contain a slash)
 if [[ ! "$OWNERREPO" =~ ^[^/]+/[^/]+$ ]]; then
-    echo "Error: OWNERREPO must be in format 'owner/repository' (e.g., 'octocat/Hello-World')"
+    echo "Error: Repository must be in format 'owner/repository' (e.g., 'octocat/Hello-World')"
     echo "You provided: '$OWNERREPO'"
     exit 1
 fi
@@ -120,12 +202,28 @@ wait_for_network() {
 # Proxmox infrastructure configuration
 log "=== Proxmox Configuration ==="
 
-# Prompt for storage backend
-echo "Available storage backends:"
-pvesm status | awk 'NR>1 {print "  - " $1 " (" $2 ")"}'
-echo ""
-read -r -e -p "Storage backend for container [$DEFAULT_STORAGE]: " input_storage
-PCT_STORAGE=${input_storage:-$DEFAULT_STORAGE}
+# Prompt for storage backend with dropdown menu
+if [ -z "${PCT_STORAGE:-}" ]; then
+    echo ""
+    echo "Select storage backend:"
+    mapfile -t storage_options < <(pvesm status | awk 'NR>1 {print $1 " (" $2 ")"}')
+    storage_names=($(pvesm status | awk 'NR>1 {print $1}'))
+
+    PS3="Enter number (default is $DEFAULT_STORAGE): "
+    select storage_choice in "${storage_options[@]}" "Use default ($DEFAULT_STORAGE)"; do
+        if [ "$REPLY" -eq "${#storage_options[@]}" ] 2>/dev/null || [ -z "$storage_choice" ]; then
+            PCT_STORAGE="$DEFAULT_STORAGE"
+            echo "Using default storage: $PCT_STORAGE"
+            break
+        elif [ -n "$storage_choice" ]; then
+            PCT_STORAGE="${storage_names[$((REPLY-1))]}"
+            echo "Selected storage: $PCT_STORAGE"
+            break
+        else
+            echo "Invalid selection. Please try again."
+        fi
+    done
+fi
 
 # Validate storage exists
 if ! pvesm status | awk 'NR>1 {print $1}' | grep -q "^${PCT_STORAGE}$"; then
@@ -133,32 +231,49 @@ if ! pvesm status | awk 'NR>1 {print $1}' | grep -q "^${PCT_STORAGE}$"; then
     exit 1
 fi
 
-# Prompt for network bridge
-echo ""
-echo "Available network bridges:"
-brctl show 2>/dev/null | awk 'NR>1 {print "  - " $1}' || ip link show type bridge | grep -oP '^\d+:\s+\K[^:]+' | sed 's/^/  - /'
-echo ""
-read -r -e -p "Network bridge for container [$DEFAULT_BRIDGE]: " input_bridge
-BRIDGE=${input_bridge:-$DEFAULT_BRIDGE}
+# Prompt for network bridge with dropdown menu
+if [ -z "${BRIDGE:-}" ]; then
+    echo ""
+    echo "Select network bridge:"
+    mapfile -t bridge_options < <(brctl show 2>/dev/null | awk 'NR>1 && $1 !~ /^[[:space:]]*$/ {print $1}' || ip link show type bridge | grep -oP '^\d+:\s+\K[^:]+')
+
+    PS3="Enter number (default is $DEFAULT_BRIDGE): "
+    select bridge_choice in "${bridge_options[@]}" "Use default ($DEFAULT_BRIDGE)"; do
+        if [ "$REPLY" -eq "$((${#bridge_options[@]}+1))" ] 2>/dev/null || [ -z "$bridge_choice" ]; then
+            BRIDGE="$DEFAULT_BRIDGE"
+            echo "Using default bridge: $BRIDGE"
+            break
+        elif [ -n "$bridge_choice" ]; then
+            BRIDGE="$bridge_choice"
+            echo "Selected bridge: $BRIDGE"
+            break
+        else
+            echo "Invalid selection. Please try again."
+        fi
+    done
+fi
 
 echo ""
 
 # Network configuration
 if [ "$USE_DHCP" = "yes" ]; then
     log "Using DHCP for network configuration"
-    NETWORK_CONFIG="name=eth0,bridge=$BRIDGE,ip=dhcp,type=veth"
+    # Disable firewall to prevent DHCP blocking (common Proxmox DHCP issue fix)
+    NETWORK_CONFIG="name=eth0,bridge=$BRIDGE,ip=dhcp,type=veth,firewall=0"
 else
     log "Using static IP configuration"
     read -r -e -p "Container Address IP (CIDR format) [$DEFAULT_IP_ADDR]: " input_ip_addr
     IP_ADDR=${input_ip_addr:-$DEFAULT_IP_ADDR}
     read -r -e -p "Container Gateway IP [$DEFAULT_GATEWAY]: " input_gateway
     GATEWAY=${input_gateway:-$DEFAULT_GATEWAY}
-    NETWORK_CONFIG="name=eth0,bridge=$BRIDGE,gw=$GATEWAY,ip=$IP_ADDR,type=veth"
+    NETWORK_CONFIG="name=eth0,bridge=$BRIDGE,gw=$GATEWAY,ip=$IP_ADDR,type=veth,firewall=0"
 fi
 
 # DNS configuration (applies to both DHCP and static)
-read -r -e -p "Container DNS Server [$DEFAULT_DNS_SERVER]: " input_dns
-DNS_SERVER=${input_dns:-$DEFAULT_DNS_SERVER}
+if [ -z "${DNS_SERVER:-}" ]; then
+    read -r -e -p "Container DNS Server [$DEFAULT_DNS_SERVER]: " input_dns
+    DNS_SERVER=${input_dns:-$DEFAULT_DNS_SERVER}
+fi
 
 # Get filename from the URLs
 TEMPL_FILE=$(basename "$TEMPL_URL")
@@ -211,6 +326,13 @@ if ! pct start "$PCTID"; then
     error "Failed to start container"
     exit 1
 fi
+
+# DHCP fix: Restart container once to ensure DHCP client gets IP
+# This solves the common "container starts too fast before DHCP" issue
+log "-- Restarting container to ensure DHCP obtains IP address..."
+sleep 5
+pct restart "$PCTID"
+sleep 5
 
 log "-- Waiting for container to be ready..."
 for i in {1..30}; do
