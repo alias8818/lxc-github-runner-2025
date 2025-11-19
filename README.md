@@ -65,7 +65,7 @@ Since the new container has Docker support, it cannot be run unprivileged. This 
 
 ```bash
 # Download the script
-curl -O https://raw.githubusercontent.com/oNaiPs/proxmox-scripts/main/lxc_create_github_actions_runner.sh
+curl -O https://raw.githubusercontent.com/alias8818/lxc-github-runner-2025/main/lxc_create_github_actions_runner.sh
 
 # Inspect script, customize variables if needed
 
