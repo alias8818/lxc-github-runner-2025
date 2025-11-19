@@ -137,6 +137,49 @@ for cmd in pct pvesh curl jq sha256sum; do
     fi
 done
 
+# Define helper functions early (before they're used)
+# log function prints text in yellow
+log() {
+  local text="$1"
+  echo -e "\033[33m$text\033[0m"
+}
+
+# error function prints text in red
+error() {
+  local text="$1"
+  echo -e "\033[31mError: $text\033[0m" >&2
+}
+
+# Wait for network connectivity in container
+wait_for_network() {
+    local container_id=$1
+    local max_attempts=30
+    local attempt=0
+
+    log "-- Waiting for network connectivity..."
+
+    while [ $attempt -lt $max_attempts ]; do
+        # Test DNS resolution and connectivity using ping (available in base image)
+        if pct exec "$container_id" -- ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+            # Test DNS resolution
+            if pct exec "$container_id" -- ping -c 1 -W 2 archive.ubuntu.com >/dev/null 2>&1; then
+                log "-- Network connectivity confirmed (DNS and internet working)"
+                return 0
+            else
+                log "-- Internet reachable but DNS not working yet, continuing to wait..."
+            fi
+        fi
+
+        attempt=$((attempt + 1))
+        echo -n "."
+        sleep 2
+    done
+
+    echo ""
+    error "Network connectivity check timed out after $((max_attempts * 2)) seconds"
+    return 1
+}
+
 # Determine runner scope (org vs repo)
 RUNNER_SCOPE=""
 if [ -n "$GITHUB_ORG" ]; then
@@ -216,48 +259,6 @@ echo ""
 log "Runner scope: $RUNNER_SCOPE"
 log "Target: $OWNERREPO"
 echo ""
-
-# log function prints text in yellow
-log() {
-  local text="$1"
-  echo -e "\033[33m$text\033[0m"
-}
-
-# error function prints text in red
-error() {
-  local text="$1"
-  echo -e "\033[31mError: $text\033[0m" >&2
-}
-
-# Wait for network connectivity in container
-wait_for_network() {
-    local container_id=$1
-    local max_attempts=30
-    local attempt=0
-
-    log "-- Waiting for network connectivity..."
-
-    while [ $attempt -lt $max_attempts ]; do
-        # Test DNS resolution and connectivity using ping (available in base image)
-        if pct exec "$container_id" -- ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
-            # Test DNS resolution
-            if pct exec "$container_id" -- ping -c 1 -W 2 archive.ubuntu.com >/dev/null 2>&1; then
-                log "-- Network connectivity confirmed (DNS and internet working)"
-                return 0
-            else
-                log "-- Internet reachable but DNS not working yet, continuing to wait..."
-            fi
-        fi
-
-        attempt=$((attempt + 1))
-        echo -n "."
-        sleep 2
-    done
-
-    echo ""
-    error "Network connectivity check timed out after $((max_attempts * 2)) seconds"
-    return 1
-}
 
 # Proxmox infrastructure configuration
 log "=== Proxmox Configuration ==="
